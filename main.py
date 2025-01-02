@@ -83,6 +83,16 @@ async def command_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id, 'Рассылка остановлена! Для возобновления вызови команду /start.')
 
 
+async def command_show(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id == MY_ID:
+        cheliki = read_data_file()
+        mailing_list = 'Список подписчиков на рассылку:\n\n'
+        for chel_id, user_info in cheliki.items():
+            mailing_list += f'{chel_id}: {user_info}\n'
+        await context.bot.send_message(chat_id, mailing_list)
+
+
 async def handle_error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error(f'{traceback.format_exc()}')
 
@@ -115,6 +125,7 @@ def run_bot():
     global bot_commands
     app.add_handler(CommandHandler('start', command_start))
     app.add_handler(CommandHandler('stop', command_stop))
+    app.add_handler(CommandHandler('show', command_show))
     bot_commands = [
         ('start', 'Подписаться на рассылку обновлений о концертах Miyagi'),
         ('stop', 'Отписаться от рассылки обновлений о концертах Miyagi')
