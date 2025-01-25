@@ -20,7 +20,7 @@ from telegram.error import Forbidden
 from bs4 import BeautifulSoup
 
 from data import TOKEN, DATA_FILE, MY_ID
-from schemas import UserInfo
+from schemas import User
 
 
 def get_miyagi_concerts() -> Optional[str]:
@@ -62,17 +62,25 @@ async def mail_updated_info(context: CallbackContext):
 
 
 async def command_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if chat_id == MY_ID and not context.job_queue.jobs():
+    chat = update.effective_chat
+    if chat.id == MY_ID and not context.job_queue.jobs():
         await context.bot.set_my_commands(commands=bot_commands, scope=BotCommandScopeAllPrivateChats())
-        context.job_queue.run_daily(mail_updated_info, time(10, 0, 0, 0))
+        context.job_queue.run_daily(mail_updated_info, time(9, 0, 0, 0))
+        # context.job_queue.run_repeating(mail_updated_info, interval=3)
 
     cheliki = read_data_file()
-    cheliki[chat_id] = UserInfo(mailing_is_activated=True, last_message_id=None)
+    cheliki[chat.id] = User(
+        id=chat.id,
+        mailing_is_activated=True,
+        last_message_id=None,
+        username=chat.username,
+        first_name=chat.first_name,
+        last_name=chat.last_name
+    )
     write_data_file(cheliki)
     msg = 'Подключена ежедневная рассылка с обновлением информации о планируемых концертах Miyagi!\n\n' \
           'Чтобы отписаться, вызови команду /stop.'
-    await context.bot.send_message(chat_id, msg)
+    await context.bot.send_message(chat.id, msg)
 
 
 async def command_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -86,34 +94,34 @@ async def command_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def command_show(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if chat_id == MY_ID:
-        cheliki = read_data_file()
+        cheliki = list(read_data_file().values())
         mailing_list = 'Список подписчиков на рассылку:\n\n'
-        for chel_id, user_info in cheliki.items():
-            mailing_list += f'{chel_id}: {user_info}\n'
-        await context.bot.send_message(chat_id, mailing_list)
+        counter = 1
+        for chel in cheliki:
+            mailing_list += f'{counter}) {str(chel)}\n'
+            counter += 1
+        await context.bot.send_message(chat_id, mailing_list, parse_mode='markdown')
 
 
 async def handle_error(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error(f'{traceback.format_exc()}')
 
 
-def read_data_file() -> dict[int, UserInfo]:
-    with open(DATA_FILE) as file:
-        people = list(filter(lambda x: x != '\n', file.readlines()))
+def read_data_file() -> dict[int, User]:
+    with open(DATA_FILE, encoding='utf-8') as file:
+        people = list(map(lambda user: eval(user), file.readlines()))
     cheliki = {}
     for chel in people:
-        chel_info = chel.split()
-        chel_id = int(chel_info[0])
-        mailing_is_activated = bool(int(chel_info[1]))
-        last_message_id = int(chel_info[2]) if int(chel_info[2]) != -1 else None
-        cheliki[chel_id] = UserInfo(mailing_is_activated=mailing_is_activated, last_message_id=last_message_id)
+        cheliki[chel.id] = chel
     return cheliki
 
 
-def write_data_file(data: dict[int, UserInfo]) -> None:
-    with open(DATA_FILE, 'w') as file:
-        for chel_id, user_info in data.items():
-            file.write(f'{chel_id} {str(user_info)}\n')
+def write_data_file(data: dict[int, User]) -> None:
+    users = list(data.values())
+    users.sort(key=lambda user: user.mailing_is_activated, reverse=True)
+    with open(DATA_FILE, 'w', encoding='utf-8') as file:
+        for user in users:
+            file.write(repr(user) + '\n')
 
 
 def run_bot():
@@ -134,7 +142,7 @@ def run_bot():
     # Errors
     app.add_error_handler(handle_error)
 
-    # Pools the bot
+    # Polls the bot
     print('Polling...')
     app.run_polling(poll_interval=1)
 
