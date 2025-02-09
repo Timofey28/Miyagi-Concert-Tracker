@@ -3,11 +3,12 @@ import traceback
 import pytz
 import requests
 from typing import Optional
-from datetime import time
+from datetime import date, time
 
 from telegram import (
     Update,
     BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
 )
 from telegram.ext import (
     Application,
@@ -37,6 +38,7 @@ def get_miyagi_concerts() -> Optional[str]:
 
 
 async def mail_updated_info(context: CallbackContext):
+    logging.info(f'Mailing for {date.today():%d.%m.%Y} started...')
     cheliki = read_data_file()
     concert_update_msg = get_miyagi_concerts()
     if concert_update_msg is None:
@@ -58,15 +60,21 @@ async def mail_updated_info(context: CallbackContext):
                 logging.error(f'Error while sending message to {chel_id}: {e}')
             else:
                 logging.info(f'Message sent to {chel_id}')
+        else:
+            del cheliki[chel_id]
+            logging.info('User {chel_id} has unsubscribed from mailing list.')
     write_data_file(cheliki)
+    logging.info(f'Mailing finished.\n{"=" * 50}')
 
 
 async def command_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat.id == MY_ID and not context.job_queue.jobs():
         await context.bot.set_my_commands(commands=bot_commands, scope=BotCommandScopeAllPrivateChats())
+        await context.bot.set_my_commands(commands=admin_commands, scope=BotCommandScopeChat(chat_id=MY_ID))
         context.job_queue.run_daily(mail_updated_info, time(9, 0, 0, 0))
-        # context.job_queue.run_repeating(mail_updated_info, interval=3)
+        # context.job_queue.run_repeating(mail_updated_info, interval=5)
+        await context.bot.send_message(MY_ID, '👌')
 
     cheliki = read_data_file()
     cheliki[chat.id] = User(
@@ -101,6 +109,8 @@ async def command_show(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mailing_list += f'{counter}) {str(chel)}\n'
             counter += 1
         await context.bot.send_message(chat_id, mailing_list, parse_mode='markdown')
+    else:
+        await context.bot.send_sticker(chat_id, 'CAACAgIAAxkBAAEBDJpnoouzjO3c6VAxcVdmifaNCXLqlgACXWEAAmGoKEglnYDvOQh0azYE')
 
 
 async def handle_error(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,7 +140,7 @@ def run_bot():
     app = Application.builder().token(TOKEN).defaults(defaults).build()
 
     # Commands
-    global bot_commands
+    global bot_commands, admin_commands
     app.add_handler(CommandHandler('start', command_start))
     app.add_handler(CommandHandler('stop', command_stop))
     app.add_handler(CommandHandler('show', command_show))
@@ -138,6 +148,7 @@ def run_bot():
         ('start', 'Подписаться на рассылку обновлений о концертах Miyagi'),
         ('stop', 'Отписаться от рассылки обновлений о концертах Miyagi')
     ]
+    admin_commands = bot_commands + [('show', 'Показать список подписчиков')]
 
     # Errors
     app.add_error_handler(handle_error)
@@ -160,5 +171,6 @@ if __name__ == '__main__':
 
     open(DATA_FILE, 'a').close()
     bot_commands = None
+    admin_commands = None
 
     run_bot()
